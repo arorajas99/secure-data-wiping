@@ -16,7 +16,7 @@ class RoundedButton(tk.Canvas):
         self.tag_id = f"button_{id(self)}"
         self.text_id = f"text_{id(self)}"
 
-        self.rect = self.create_rounded_rect(0, 0, width, height, radius=border_radius, fill=bg, tag=self.tag_id)
+        self.rect = self.create_rounded_rect(0, 0, width, height, radius=border_radius, fill=bg, outline=bg, tag=self.tag_id)
         self.text_item = self.create_text(width/2, height/2, text=text, fill=fg, font=('Helvetica', 11, 'bold'), tag=self.tag_id)
 
         self.bind_events()
@@ -343,6 +343,7 @@ class CleanSlateApp(tk.Tk):
 if __name__ == "__main__":
     app = CleanSlateApp()
     app.mainloop()
+
 
 
 
