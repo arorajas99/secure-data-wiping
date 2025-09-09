@@ -121,9 +121,11 @@ class SecureWipeEngine:
     def _overwrite_drive(self, drive_path, device_details):
         start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
-            total_size_bytes = shutil.disk_usage(drive_path).total
+            total_size_bytes = shutil.disk_usage(drive_path).free
+            self._update_ui(f"Warning: Overwriting free space ({total_size_bytes / (1024**3):.2f} GB) on {drive_path}", 0)
+
             chunk_size = 1024 * 1024
-            dummy_file_path = os.path.join(drive_path, "dummy_file.dat")
+            dummy_file_path = os.path.join(drive_path, "cleanslate_wipefile.tmp")
             passes = [
                 ("Pass 1 of 3: Overwriting with Zeros...", b'\x00', 0, 33),
                 ("Pass 2 of 3: Overwriting with Ones...", b'\xff', 33, 66),
@@ -131,16 +133,30 @@ class SecureWipeEngine:
             ]
             for msg, pattern, prog_start, prog_end in passes:
                 self._update_ui(msg, prog_start)
-                with open(dummy_file_path, "wb") as f:
-                    for i in range(0, total_size_bytes, chunk_size):
-                        if self.stop_flag:
-                            if os.path.exists(dummy_file_path): os.remove(dummy_file_path)
-                            return None
-                        data = pattern * min(chunk_size, total_size_bytes - i) if pattern else os.urandom(min(chunk_size, total_size_bytes - i))
-                        f.write(data)
-                        progress = prog_start + (i / total_size_bytes) * (prog_end - prog_start)
-                        self._update_ui(f"{msg.split(':')[0]}: {progress:.2f}% complete", progress)
-                if os.path.exists(dummy_file_path): os.remove(dummy_file_path)
+                try:
+                    with open(dummy_file_path, "wb") as f:
+                        written_bytes = 0
+                        while written_bytes < total_size_bytes:
+                            if self.stop_flag:
+                                if os.path.exists(dummy_file_path): os.remove(dummy_file_path)
+                                self._update_ui("Drive wipe stopped by user.", 0)
+                                return None
+
+                            data_chunk = pattern * chunk_size if pattern else os.urandom(chunk_size)
+                            if written_bytes + len(data_chunk) > total_size_bytes:
+                                data_chunk = data_chunk[:total_size_bytes - written_bytes]
+
+                            f.write(data_chunk)
+                            written_bytes += len(data_chunk)
+
+                            progress = prog_start + (written_bytes / total_size_bytes) * (prog_end - prog_start)
+                            self._update_ui(f"{msg.split(':')[0]}: {progress:.2f}% complete", progress)
+                except (IOError, OSError):
+                    self._update_ui(f"Drive filled during {msg.split(':')[0]}. Proceeding to next pass.", prog_end)
+                finally:
+                    if os.path.exists(dummy_file_path):
+                        os.remove(dummy_file_path)
+                        time.sleep(1)
 
             self._update_ui("NIST SP 800-88 Clear operation successful. Generating certificate...", 100)
 
@@ -173,24 +189,54 @@ class SecureWipeEngine:
             if detector.is_system_drive(path):
                 self._update_ui(f"ERROR: Cannot wipe system drive at {path}", 0)
                 return False
+
         files_to_move = []
         for path in target_paths:
-            if os.path.isfile(path): files_to_move.append(path)
+            if os.path.isfile(path):
+                files_to_move.append(path)
             elif os.path.isdir(path):
                 for root, _, files in os.walk(path):
-                    for file in files: files_to_move.append(os.path.join(root, file))
+                    for file in files:
+                        files_to_move.append(os.path.join(root, file))
+
+        if not files_to_move:
+            self._update_ui("Warning: No files found in the selected target(s).", 0)
+            return False
+
+        bases = []
+        for p in target_paths:
+            if os.path.isdir(p):
+                bases.append(p)
+            else:
+                bases.append(os.path.dirname(p))
+        common_base = os.path.commonpath(bases)
+
         total_files = len(files_to_move)
         for i, src_path in enumerate(files_to_move):
-            if self.stop_flag: break
+            if self.stop_flag:
+                self._update_ui("Wipe stopped by user during move.", 0)
+                self.undo()
+                return False
             try:
-                rel_path = os.path.relpath(src_path, os.path.commonpath(target_paths))
+                rel_path = os.path.relpath(src_path, common_base)
                 dst_path = os.path.join(self.temp_storage, rel_path)
                 os.makedirs(os.path.dirname(dst_path), exist_ok=True)
                 shutil.move(src_path, dst_path)
                 self.undo_stack.append({'original': src_path, 'temp': dst_path})
-                progress = (i / total_files) * 100 if total_files > 0 else 100
+                progress = ((i + 1) / total_files) * 100 if total_files > 0 else 100
                 self._update_ui(f"Moved: {os.path.basename(src_path)} ({i+1}/{total_files})", progress)
-            except Exception as e: self._update_ui(f"ERROR: Failed to move {src_path} - {e}")
+            except Exception as e:
+                self._update_ui(f"ERROR: Failed to move {src_path} - {e}")
+                self.undo()
+                return False
+
+        for path in target_paths:
+            if os.path.isdir(path):
+                try:
+                    shutil.rmtree(path)
+                except OSError as e:
+                    self._update_ui(f"Info: Could not remove original empty directory {path} - {e}")
+
         self._update_ui("Wipe (move) complete. You have 30s to Undo.", 100)
         return True
 
@@ -202,16 +248,20 @@ class SecureWipeEngine:
             original, temp = item['original'], item['temp']
             try:
                 os.makedirs(os.path.dirname(original), exist_ok=True)
-                shutil.move(temp, original)
-                progress = (i / total_files) * 100 if total_files > 0 else 100
-                self._update_ui(f"Restored: {os.path.basename(original)}", progress)
-            except Exception as e: self._update_ui(f"ERROR: Failed to restore {original} - {e}")
+                if os.path.exists(temp):
+                    shutil.move(temp, original)
+                    progress = ((i + 1) / total_files) * 100 if total_files > 0 else 100
+                    self._update_ui(f"Restored: {os.path.basename(original)}", progress)
+            except Exception as e:
+                self._update_ui(f"ERROR: Failed to restore {original} - {e}")
         self.undo_stack.clear()
-        self.permanent_delete() # This is now just a cleanup
+        self.permanent_delete()
         self._update_ui("Undo complete.", 100)
 
     def permanent_delete(self):
-        if not os.path.exists(self.temp_storage): return None
+        if not os.path.exists(self.temp_storage):
+            return None
+
         self._update_ui("Permanently deleting files... Generating certificate...", 0)
         try:
             shutil.rmtree(self.temp_storage, ignore_errors=True)
@@ -252,7 +302,7 @@ class CleanSlateApp:
 
         self.setup_styles()
         self.create_widgets()
-        self.refresh_drives()
+        self.full_reset()
 
     def setup_styles(self):
         style = ttk.Style()
@@ -308,7 +358,7 @@ class CleanSlateApp:
         ttk.Label(options_frame, text="Wipe Method:").pack(side='left', padx=(0, 10))
         self.wipe_method = tk.StringVar(value="Secure File Deletion (with Undo)")
         ttk.Combobox(options_frame, textvariable=self.wipe_method,
-                     values=["Secure File Deletion (with Undo)", "NIST SP 800-88 Clear (3-Pass): Wipes entire drive permanently."],
+                     values=["Secure File Deletion (with Undo)", "DATA WILL BE PERMANENTLY DELETED: NIST SP 800-88"],
                      state='readonly', width=50).pack(side='left')
         controls_frame = ttk.Frame(main_frame)
         controls_frame.pack(fill='x', pady=(0, 20))
@@ -330,14 +380,38 @@ class CleanSlateApp:
         status_bar.pack(side='bottom', fill='x')
         self.status_label = tk.Label(status_bar, text="Ready", bg='#546E7A', fg='white', font=('Segoe UI', 9))
         self.status_label.pack(side='left', padx=10)
-        tk.Label(status_bar, text="CleanSlate v2.3-Cert", bg='#546E7A', fg='white', font=('Segoe UI', 9)).pack(side='right', padx=10)
+        tk.Label(status_bar, text="CleanSlate v2.7-Robust", bg='#546E7A', fg='white', font=('Segoe UI', 9)).pack(side='right', padx=10)
 
     def show_sdg_info(self):
         sdg_window = Toplevel(self.root); sdg_window.title("Sustainability Impact"); sdg_window.geometry("600x450"); sdg_window.transient(self.root); sdg_window.grab_set()
         frame = ttk.Frame(sdg_window, padding=20); frame.pack(fill='both', expand=True)
         ttk.Label(frame, text="Our Sustainable Development Impact", font=("Segoe UI", 16, "bold")).pack(pady=(0, 15))
         info_text = scrolledtext.ScrolledText(frame, wrap='word', font=("Segoe UI", 10), relief='solid', borderwidth=1); info_text.pack(fill='both', expand=True, pady=5)
-        sdg_content = "This tool directly contributes to the UN Sustainable Development Goals (SDGs)..."
+        sdg_content = """Secure data sanitization is a critical practice that supports global sustainability efforts. By using CleanSlate, you contribute to several UN Sustainable Development Goals (SDGs):
+
+---
+Goal 12: Responsible Consumption and Production
+---
+This is our most significant impact. Securely wiping data is the first step in the circular economy for electronics.
+
+• Reduces E-Waste: When data is verifiably destroyed, electronic devices (laptops, phones, servers) can be safely resold, refurbished, or donated instead of being shredded or sent to landfills.
+• Promotes Reuse: It gives hardware a second life, conserving the vast amounts of energy, water, and raw materials needed to manufacture new devices.
+• Enables IT Asset Disposition (ITAD): Supports a thriving industry focused on responsibly managing the entire lifecycle of IT equipment.
+
+---
+Goal 16: Peace, Justice, and Strong Institutions
+---
+Data privacy is a fundamental human right and a component of a just society.
+
+• Protects Privacy: Securely erasing personal, financial, and corporate data prevents it from falling into the wrong hands, protecting individuals and organizations from fraud, identity theft, and corporate espionage.
+• Builds Trust: Strong data protection practices build trust in digital institutions, both public and private.
+
+---
+Goal 9: Industry, Innovation, and Infrastructure
+---
+• Fosters Secure Infrastructure: Reliable data destruction is a cornerstone of secure and resilient digital infrastructure. It ensures that when hardware is decommissioned, the sensitive data it once held does not become a liability.
+
+By using CleanSlate, you are not just protecting your data; you are making a tangible contribution to a more secure and sustainable world."""
         info_text.insert(tk.END, sdg_content); info_text.config(state='disabled')
         ttk.Button(frame, text="Close", command=sdg_window.destroy).pack(pady=(15,0))
 
@@ -350,33 +424,53 @@ class CleanSlateApp:
         self.log("Drive list refreshed.")
 
     def select_files(self):
+        for i in self.drive_tree.selection(): self.drive_tree.selection_remove(i)
         files = filedialog.askopenfilenames(title="Select files to wipe");
         if files: self.selected_targets = list(files); self.selection_label.config(text=f"{len(files)} file(s) selected"); self.log(f"Selected {len(files)} files.")
 
     def select_folder(self):
+        for i in self.drive_tree.selection(): self.drive_tree.selection_remove(i)
         folder = filedialog.askdirectory(title="Select folder to wipe")
         if folder: self.selected_targets = [folder]; self.selection_label.config(text=f"Folder: {os.path.basename(folder)}"); self.log(f"Selected folder: {folder}.")
 
     def show_confirmation_dialog(self):
-        selected_method = self.wipe_method.get(); selection = self.drive_tree.selection(); drive_path = None
-        if selection: item = self.drive_tree.item(selection[0]); drive_path = item['values'][0]
-        if selected_method == "NIST SP 800-88 Clear (3-Pass): Wipes entire drive.":
-            if not drive_path: messagebox.showwarning("No Drive Selected", "Please select a drive to perform a full wipe."); return
-            if item['values'][5] == 'Yes': messagebox.showerror("System Drive Warning", "Cannot perform a full wipe on a system drive."); return
-            self.selected_targets = [drive_path]
-        elif not (self.selected_targets or drive_path):
-            messagebox.showwarning("No Selection", "Please select files, a folder, or a drive to wipe."); return
-        confirm_window = Toplevel(self.root); confirm_window.title("CONFIRM DELETION"); confirm_window.geometry("450x250"); confirm_window.transient(self.root); confirm_window.grab_set()
+        selected_method = self.wipe_method.get()
+        is_drive_wipe = False
+        drive_path_to_wipe = None
+
+        if "NIST" in selected_method:
+            drive_selection = self.drive_tree.selection()
+            if not drive_selection:
+                messagebox.showwarning("Drive Not Selected", "You chose the drive wipe method, but did not select a drive from the list. Please select a drive and try again.")
+                return
+            item = self.drive_tree.item(drive_selection[0])
+            drive_path_to_wipe = item['values'][0]
+            if item['values'][5] == 'Yes':
+                messagebox.showerror("System Drive Warning", "You cannot select the system drive for a wipe operation.")
+                return
+            is_drive_wipe = True
+        elif "Secure File Deletion" in selected_method:
+            if not self.selected_targets:
+                messagebox.showwarning("No Files/Folders Selected", "You chose the secure file deletion method, but did not select any files or folders. Please make a selection and try again.")
+                return
+            is_drive_wipe = False
+        else:
+            messagebox.showerror("Error", "Invalid wipe method selected.")
+            return
+
+        confirm_window = Toplevel(self.root); confirm_window.title("CONFIRM ACTION"); confirm_window.geometry("450x250"); confirm_window.transient(self.root); confirm_window.grab_set()
         frame = ttk.Frame(confirm_window, padding=20); frame.pack(fill='both', expand=True)
         ttk.Label(frame, text="⚠️ FINAL WARNING ⚠️", font=('Segoe UI', 14, 'bold'), foreground='#E57373').pack(pady=(0, 10))
-        if selected_method == "NIST SP 800-88 Clear (3-Pass): Wipes entire drive.":
-            ttk.Label(frame, text="You are about to start a PERMANENT drive wipe.", justify=tk.CENTER, wraplength=400).pack()
-            ttk.Label(frame, text=f"ALL DATA on drive {drive_path} will be permanently destroyed...", justify=tk.CENTER, wraplength=400, font=('Segoe UI', 10, 'bold')).pack(pady=(5, 20))
-            def on_proceed(): confirm_window.destroy(); self.start_wipe_with_captcha(drive_path=drive_path)
+
+        if is_drive_wipe:
+            ttk.Label(frame, text="You are about to format and permanently erase a drive.", justify=tk.CENTER, wraplength=400).pack()
+            ttk.Label(frame, text=f"ALL DATA on drive '{drive_path_to_wipe}' will be destroyed and unrecoverable.", justify=tk.CENTER, wraplength=400, font=('Segoe UI', 10, 'bold')).pack(pady=(5, 20))
+            def on_proceed(): confirm_window.destroy(); self.start_wipe_with_captcha(drive_path=drive_path_to_wipe)
         else:
-            ttk.Label(frame, text="You are about to start a PERMANENT deletion process.", justify=tk.CENTER, wraplength=400).pack()
+            ttk.Label(frame, text="You are about to start a secure deletion process.", justify=tk.CENTER, wraplength=400).pack()
             ttk.Label(frame, text="This action will make your data unrecoverable after 30 seconds.", justify=tk.CENTER, wraplength=400).pack(pady=(5, 20))
             def on_proceed(): confirm_window.destroy(); self.start_wipe_with_captcha()
+
         def on_cancel(): confirm_window.destroy(); self.log("Operation canceled by user.", "WARNING")
         btn_frame = ttk.Frame(frame); btn_frame.pack()
         ttk.Button(btn_frame, text="Proceed", command=on_proceed, style='Danger.TButton').pack(side='left', padx=10, ipady=5)
@@ -386,24 +480,25 @@ class CleanSlateApp:
 
     def start_wipe_with_captcha(self, drive_path=None):
         captcha = ''.join(random.choices(string.ascii_letters + string.digits, k=6))
-        ans = simpledialog.askstring("Captcha Confirmation", f"Type the following to confirm: {captcha}")
+        ans = simpledialog.askstring("Captcha Confirmation", f"This is your final confirmation. Data will be permanently destroyed.\n\nType the following to proceed: {captcha}")
         if ans != captcha:
-            messagebox.showwarning("Captcha Failed", "Captcha did not match. Aborting."); self.log("Captcha failed.", "ERROR"); return
-        selected_method = self.wipe_method.get()
-        if selected_method == "NIST SP 800-88 Clear (3-Pass): Wipes entire drive.":
+            messagebox.showwarning("Captcha Failed", "Captcha did not match. Aborting operation."); self.log("Captcha failed.", "ERROR"); return
+
+        if drive_path:
             self.wipe_btn.config(state='disabled'); self.stop_btn.config(state='normal'); self.undo_btn.config(state='disabled')
             self.wipe_engine.stop_flag = False
             item = self.drive_tree.item(self.drive_tree.selection()[0])
             device_details = {'path': item['values'][0], 'label': item['values'][1], 'type': item['values'][2], 'size_readable': item['values'][3]}
             self.wipe_thread = threading.Thread(target=self.run_drive_wipe, args=(drive_path, device_details)); self.wipe_thread.start()
         else:
-            self.wipe_btn.config(state='disabled'); self.stop_btn.config(state='normal'); self.undo_btn.config(state='disabled')
+            self.wipe_btn.config(state='disabled'); self.stop_btn.config(state='disabled'); self.undo_btn.config(state='disabled')
             self.wipe_engine.stop_flag = False
             self.wipe_thread = threading.Thread(target=self.wipe_and_schedule_delete); self.wipe_thread.start()
 
     def run_drive_wipe(self, drive_path, device_details):
         cert_data = self.wipe_engine._overwrite_drive(drive_path, device_details)
         if cert_data: self.root.after(0, self.prompt_save_certificate, cert_data)
+        self.root.after(0, self.full_reset)
 
     def prompt_save_certificate(self, cert_data):
         save_path = filedialog.askdirectory(title="Select Folder to Save Wipe Certificate")
@@ -419,7 +514,10 @@ class CleanSlateApp:
     def wipe_and_schedule_delete(self):
         start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         success = self.wipe_engine.wipe_target(self.selected_targets, start_time)
-        if success: self.root.after(0, self.start_undo_countdown)
+        if success:
+            self.root.after(0, self.start_undo_countdown)
+        else:
+            self.root.after(0, self.soft_reset) # A soft reset keeps user's selection on failure
 
     def start_undo_countdown(self):
         self.undo_btn.config(state='normal'); self.stop_btn.config(state='disabled'); self.wipe_btn.config(state='disabled')
@@ -433,30 +531,49 @@ class CleanSlateApp:
         if not self.wipe_engine.stop_flag:
             cert_data = self.wipe_engine.permanent_delete()
             if cert_data: self.root.after(0, self.prompt_save_certificate, cert_data)
-            self.root.after(0, self.reset_buttons)
+            self.root.after(0, self.full_reset)
 
     def undo_wipe(self):
-        self.wipe_engine.stop_flag = True; self.wipe_engine.undo(); self.reset_buttons()
+        self.wipe_engine.stop_flag = True
+        undo_thread = threading.Thread(target=self.wipe_engine.undo)
+        undo_thread.start()
+        self.soft_reset()
 
     def stop_wipe(self):
-        self.wipe_engine.stop_flag = True; self.log("Stopping wipe...", "WARNING"); self.reset_buttons()
+        if self.wipe_thread and self.wipe_thread.is_alive():
+            self.wipe_engine.stop_flag = True
+            self.log("Stop request sent...", "WARNING")
+        self.soft_reset()
 
-    def reset_buttons(self):
+    # --- FIX: New soft_reset only resets buttons and progress, not the user's selection ---
+    def soft_reset(self):
+        """Resets the UI state after a stop, undo, or failure, preserving the user's target selection."""
         self.wipe_btn.config(state='normal'); self.stop_btn.config(state='disabled'); self.undo_btn.config(state='disabled')
         self.progress_label.config(text="Ready"); self.progress_bar['value'] = 0
+
+    # --- FIX: New full_reset clears everything, only used on startup and successful completion ---
+    def full_reset(self):
+        """Resets the entire UI state, including clearing the target selection."""
+        self.soft_reset()
+        self.refresh_drives()
+        self.selected_targets = []
+        self.selection_label.config(text="No targets selected.")
 
     def update_ui(self, message, progress=0):
         self.root.after(0, self._safe_update_ui, message, progress)
 
     def _safe_update_ui(self, message, progress):
-        self.progress_bar['value'] = progress; self.log(message); self.progress_label.config(text=message); self.root.update_idletasks()
+        self.progress_bar['value'] = progress
+        self.log(message)
+        self.progress_label.config(text=message)
+        self.root.update_idletasks()
 
     def log(self, message, level="INFO"):
         timestamp = datetime.now().strftime("%H:%M:%S")
-        self.log_text.insert(tk.END, f"[{timestamp}] {message}\n"); self.log_text.see(tk.END)
-        self.log_text.tag_add(level, "end-2c", "end-1c")
-        colors = {'SUCCESS': '#4CAF50', 'ERROR': '#F44336', 'WARNING': '#FF9800', 'INFO': '#333333'}
-        self.log_text.tag_configure(level, foreground=colors.get(level, '#333333'))
+        self.log_text.config(state='normal')
+        self.log_text.insert(tk.END, f"[{timestamp}] {message}\n")
+        self.log_text.see(tk.END)
+        self.log_text.config(state='disabled')
 
 def main():
     root = tk.Tk()
