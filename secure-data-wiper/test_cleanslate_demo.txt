@@ -1,0 +1,9 @@
+This is sensitive test data for CleanSlate demonstration.
+This file will be securely wiped to demonstrate the application functionality.
+
+Important confidential information:
+- Account Number: 1234567890
+- Password: SecretPassword123
+- Social Security: 123-45-6789
+
+This data will be permanently destroyed using DoD 5220.22-M standard.

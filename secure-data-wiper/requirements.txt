@@ -1,0 +1,10 @@
+# Core dependencies
+psutil>=5.9.0
+
+# Optional dependencies for enhanced features
+reportlab>=3.6.0  # For PDF certificate generation
+pywin32>=300; sys_platform == 'win32'  # For Windows-specific features
+
+# Development dependencies
+pyinstaller>=5.0  # For building executable
+pytest>=7.0  # For testing

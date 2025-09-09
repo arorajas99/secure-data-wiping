@@ -1,0 +1,13 @@
+{
+  "name": "cleanslate",
+  "version": "1.01",
+  "description": "CleanSlate - Professional Data Sanitization Tool",
+  "main": "main.py",
+  "scripts": {
+    "start": "python main.py",
+    "build": "pyinstaller --onefile --windowed main.py"
+  },
+  "keywords": ["data-wiper", "security", "e-waste", "recycling"],
+  "author": "JNARDDC",
+  "license": "MIT"
+}

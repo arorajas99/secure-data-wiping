@@ -1,0 +1,38 @@
+{
+  "certificate_id": "CS-20250909-8883BB24",
+  "version": "1.0",
+  "standard": "NIST SP 800-88 Rev. 1",
+  "timestamp": "2025-09-09T14:57:13.609596",
+  "organization": {
+    "name": "CleanSlate Data Sanitization",
+    "department": "Professional Data Wiping Services",
+    "address": "NIST SP 800-88 Rev. 1 Compliant"
+  },
+  "wipe_details": {
+    "wipe_method": "DoD 5220.22-M (3-pass)",
+    "target_type": "Files/Folder",
+    "target_path": "Multiple",
+    "start_time": "2025-09-09T14:57:13.609298",
+    "end_time": "2025-09-09T14:57:13.609324",
+    "bytes_wiped": 0,
+    "passes_completed": 1,
+    "verification_status": "Verified",
+    "duration": 0
+  },
+  "verification": {
+    "method": "DoD 5220.22-M (3-pass)",
+    "passes": 1,
+    "bytes_wiped": 0,
+    "start_time": "2025-09-09T14:57:13.609298",
+    "end_time": "2025-09-09T14:57:13.609324",
+    "duration_seconds": 0,
+    "target_info": {},
+    "verification_status": "Verified",
+    "hash": "41ec46734896a4a75bd161699ac8cb0ec357f17f671216712f3131b0e43b226a"
+  },
+  "digital_signature": {
+    "algorithm": "SHA-512",
+    "signature": "6c2606fa0175f7505cb2711543dcac5176f8cd59bfe8dd5c77c1172892f62cca6bebba4b14e12d61b6c64c6bb52b0b08b0d40165a3e4e60db0b092b4954388fe",
+    "timestamp": "2025-09-09T14:57:13.609779"
+  }
+}

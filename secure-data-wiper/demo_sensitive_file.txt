@@ -1,0 +1,15 @@
+CONFIDENTIAL INFORMATION - DO NOT SHARE
+========================================
+
+Customer Database:
+- Name: John Doe
+- SSN: 123-45-6789
+- Credit Card: 4532-1234-5678-9012
+- Password: SuperSecret123!
+
+Bank Account Details:
+- Account: 9876543210
+- Routing: 123456789
+- PIN: 4321
+
+This file contains sensitive data that must be securely wiped!
