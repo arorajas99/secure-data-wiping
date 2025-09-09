@@ -1,9 +1,0 @@
-android {
-    // ... other configurations
-    defaultConfig {
-        applicationId "com.cleanslate" // Make sure this is your actual package name
-        // ... other defaultConfig settings
-    }
-    // ... other configurations
-}
-    
