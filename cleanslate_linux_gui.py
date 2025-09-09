@@ -86,20 +86,20 @@ class CustomDialog(tk.Toplevel):
         self.geometry(f"400x200+{int(x)}+{int(y)}")
         self.resizable(False, False)
 
-        main_frame = tk.Frame(self, bg=bg_color, padx=20, pady=20)
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        self.main_frame = tk.Frame(self, bg=bg_color, padx=20, pady=20)
+        self.main_frame.pack(fill=tk.BOTH, expand=True)
         
         # Icon (simple text-based for now)
         icon_colors = {'warning': '#FFA500', 'error': '#DC3545', 'info': '#17A2B8'}
         icon_char = {'warning': '!', 'error': 'X', 'info': 'i'}
         
-        icon_label = tk.Label(main_frame, text=icon_char.get(dialog_type, 'i'), font=('Helvetica', 36, 'bold'), bg=bg_color, fg=icon_colors.get(dialog_type, '#FFF'))
+        icon_label = tk.Label(self.main_frame, text=icon_char.get(dialog_type, 'i'), font=('Helvetica', 36, 'bold'), bg=bg_color, fg=icon_colors.get(dialog_type, '#FFF'))
         icon_label.pack(pady=(0, 10))
 
-        message_label = tk.Label(main_frame, text=message, font=('Helvetica', 10), wraplength=360, justify='center', bg=bg_color, fg=fg_color)
+        message_label = tk.Label(self.main_frame, text=message, font=('Helvetica', 10), wraplength=360, justify='center', bg=bg_color, fg=fg_color)
         message_label.pack(fill=tk.X, expand=True, pady=10)
 
-        self.button_frame = tk.Frame(main_frame, bg=bg_color)
+        self.button_frame = tk.Frame(self.main_frame, bg=bg_color)
         self.button_frame.pack(side='bottom', pady=(10, 0))
 
     def wait(self):
@@ -136,8 +136,18 @@ class InfoDialog(CustomDialog):
 class AskStringDialog(CustomDialog):
     def __init__(self, parent, title, message):
         super().__init__(parent, title, message, dialog_type='warning')
-        self.entry = ttk.Entry(self, justify='center', font=('Helvetica', 12))
-        self.entry.pack(pady=5, padx=20, fill='x')
+        
+        # Adjust geometry to make space for the entry widget
+        parent.update_idletasks()
+        dialog_width = 400
+        dialog_height = 230
+        x = parent.winfo_x() + (parent.winfo_width() / 2) - (dialog_width / 2)
+        y = parent.winfo_y() + (parent.winfo_height() / 2) - (dialog_height / 2)
+        self.geometry(f"{dialog_width}x{dialog_height}+{int(x)}+{int(y)}")
+
+        self.entry = ttk.Entry(self.main_frame, justify='center', font=('Helvetica', 12))
+        # Pack the entry into the main frame, *before* the button frame which is at the bottom
+        self.entry.pack(pady=10, before=self.button_frame, fill='x')
         self.entry.focus_set()
         
         ok_btn = RoundedButton(self.button_frame, "Confirm", self.on_ok, 100, 35, bg="#DC3545", fg="#FFF", hover_bg="#c82333", active_bg="#a02531")
@@ -333,4 +343,5 @@ class CleanSlateApp(tk.Tk):
 if __name__ == "__main__":
     app = CleanSlateApp()
     app.mainloop()
+
 
