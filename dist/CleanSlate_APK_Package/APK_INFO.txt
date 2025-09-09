@@ -1,0 +1,20 @@
+# CleanSlate APK Information 
+ 
+App Name: CleanSlate - Secure Data Wiping 
+Package Name: com.cleanslate 
+Version: 1.0.0 
+Build Date: 09-09-2025 17:12:10.07 
+ 
+SECURITY WARNING: 
+This application performs irreversible data destruction. 
+Data wiped with CleanSlate CANNOT be recovered. 
+Always backup important data before using this application. 
+ 
+Features: 
+- DoD 5220.22-M secure wiping 
+- NIST 800-88 Guidelines 
+- Gutmann 35-pass method 
+- External device scanning 
+- File selection interface 
+- Comprehensive warning system 
+- Real-time progress tracking 

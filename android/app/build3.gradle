@@ -1,0 +1,13 @@
+plugins {
+    id 'com.android.library' // Or 'com.android.application'
+}
+
+android {
+    // Your Android-specific configurations go here
+    compileSdkVersion 34 // Example
+    defaultConfig {
+        minSdkVersion 21 // Example
+        // Other default configurations
+    }
+    // ... other configurations like buildTypes, compileOptions, etc.
+}
