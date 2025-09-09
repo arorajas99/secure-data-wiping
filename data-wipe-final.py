@@ -308,8 +308,8 @@ class CleanSlateApp:
         ttk.Label(options_frame, text="Wipe Method:").pack(side='left', padx=(0, 10))
         self.wipe_method = tk.StringVar(value="Secure File Deletion (with Undo)")
         ttk.Combobox(options_frame, textvariable=self.wipe_method,
-                     values=["Secure File Deletion (with Undo)", "NIST SP 800-88 Clear (3-Pass)"],
-                     state='readonly', width=40).pack(side='left')
+                     values=["Secure File Deletion (with Undo)", "NIST SP 800-88 Clear (3-Pass): Wipes entire drive permanently."],
+                     state='readonly', width=50).pack(side='left')
         controls_frame = ttk.Frame(main_frame)
         controls_frame.pack(fill='x', pady=(0, 20))
         self.wipe_btn = ttk.Button(controls_frame, text="🗑️ START WIPE", command=self.show_confirmation_dialog, style='Danger.TButton')
@@ -360,7 +360,7 @@ class CleanSlateApp:
     def show_confirmation_dialog(self):
         selected_method = self.wipe_method.get(); selection = self.drive_tree.selection(); drive_path = None
         if selection: item = self.drive_tree.item(selection[0]); drive_path = item['values'][0]
-        if selected_method == "NIST SP 800-88 Clear (3-Pass)":
+        if selected_method == "NIST SP 800-88 Clear (3-Pass): Wipes entire drive.":
             if not drive_path: messagebox.showwarning("No Drive Selected", "Please select a drive to perform a full wipe."); return
             if item['values'][5] == 'Yes': messagebox.showerror("System Drive Warning", "Cannot perform a full wipe on a system drive."); return
             self.selected_targets = [drive_path]
@@ -369,7 +369,7 @@ class CleanSlateApp:
         confirm_window = Toplevel(self.root); confirm_window.title("CONFIRM DELETION"); confirm_window.geometry("450x250"); confirm_window.transient(self.root); confirm_window.grab_set()
         frame = ttk.Frame(confirm_window, padding=20); frame.pack(fill='both', expand=True)
         ttk.Label(frame, text="⚠️ FINAL WARNING ⚠️", font=('Segoe UI', 14, 'bold'), foreground='#E57373').pack(pady=(0, 10))
-        if selected_method == "NIST SP 800-88 Clear (3-Pass)":
+        if selected_method == "NIST SP 800-88 Clear (3-Pass): Wipes entire drive.":
             ttk.Label(frame, text="You are about to start a PERMANENT drive wipe.", justify=tk.CENTER, wraplength=400).pack()
             ttk.Label(frame, text=f"ALL DATA on drive {drive_path} will be permanently destroyed...", justify=tk.CENTER, wraplength=400, font=('Segoe UI', 10, 'bold')).pack(pady=(5, 20))
             def on_proceed(): confirm_window.destroy(); self.start_wipe_with_captcha(drive_path=drive_path)
@@ -390,7 +390,7 @@ class CleanSlateApp:
         if ans != captcha:
             messagebox.showwarning("Captcha Failed", "Captcha did not match. Aborting."); self.log("Captcha failed.", "ERROR"); return
         selected_method = self.wipe_method.get()
-        if selected_method == "NIST SP 800-88 Clear (3-Pass)":
+        if selected_method == "NIST SP 800-88 Clear (3-Pass): Wipes entire drive.":
             self.wipe_btn.config(state='disabled'); self.stop_btn.config(state='normal'); self.undo_btn.config(state='disabled')
             self.wipe_engine.stop_flag = False
             item = self.drive_tree.item(self.drive_tree.selection()[0])
