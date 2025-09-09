@@ -28,7 +28,7 @@ class RoundedButton(tk.Canvas):
             x1+radius, y2, x1+radius, y2, x1, y2, x1, y2-radius, x1, y2-radius, x1, y1+radius,
             x1, y1+radius, x1, y1
         ]
-        return self.create_polygon(points, **kwargs, smooth=True)
+        return self.create_polygon(points, **kwargs)
 
     def bind_events(self):
         self.tag_bind(self.tag_id, "<Enter>", self.on_enter)
@@ -343,5 +343,6 @@ class CleanSlateApp(tk.Tk):
 if __name__ == "__main__":
     app = CleanSlateApp()
     app.mainloop()
+
 
 
